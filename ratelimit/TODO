@@ -1,0 +1,18 @@
+# ratelimit
+
+Return headers like
+
+x-ratelimit-limit: 60
+x-ratelimit-remaining: 56
+x-ratelimit-reset: 1622955974
+x-ratelimit-used: 4
+
+https://docs.github.com/en/rest/overview/resources-in-the-rest-api#rate-limiting
+
+on exceeding the limit
+
+> HTTP/2 403
+> Date: Tue, 20 Aug 2013 14:50:41 GMT
+> X-RateLimit-Limit: 60
+> X-RateLimit-Remaining: 0
+> X-RateLimit-Reset: 1377013266
