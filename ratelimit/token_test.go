@@ -3,6 +3,7 @@ package ratelimit_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,10 +11,10 @@ import (
 	"github.com/teleivo/go-distributed/ratelimit"
 )
 
-// TODO speed up tests with smaller interval?
 // TODO write a test for the returned rate limit headers
 // TODO write a test that shows that sending requests while the rate limiter is
 // in the state of 429 will not prolong the wait necessary to get to 200
+// TODO speed up tests with smaller interval?
 
 func TestTokenBucket(t *testing.T) {
 	t.Run("AllowRequestsWithinLimit", func(t *testing.T) {
@@ -33,7 +34,7 @@ func TestTokenBucket(t *testing.T) {
 		s := time.Now()
 		var e time.Time
 		for range time.Tick(interval / time.Duration(rate+1)) {
-			h.ServeHTTP(nil, nil)
+			h.ServeHTTP(httptest.NewRecorder(), nil)
 			calls++
 			if calls > rate-1 {
 				e = time.Now()
@@ -49,6 +50,39 @@ func TestTokenBucket(t *testing.T) {
 		if got != uint64(rate) {
 			t.Errorf("Got %d, expected %d calls", got, rate)
 		}
+	})
+	t.Run("RequestsWithinLimitsRateLimitHeaders", func(t *testing.T) {
+		var rate uint64 = 10
+		interval := time.Minute
+		var got uint64
+		h := ratelimit.TokenBucket(rate, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddUint64(&got, 1)
+		}))
+
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, nil)
+
+		rsp := rec.Result()
+		if got := rsp.StatusCode; got != 200 {
+			t.Errorf("Got %d, expected status 200", got)
+		}
+		if got != 1 {
+			t.Errorf("Got %d, expected 1 call", got)
+		}
+		if got := rsp.Header.Get("X-Ratelimit-Limit"); got != strconv.FormatUint(rate, 10) {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-limit", got, rate)
+		}
+		if got := rsp.Header.Get("X-Ratelimit-Remaining"); got != strconv.FormatUint(rate-1, 10) {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-remaining", got, rate-1)
+		}
+		if got := rsp.Header.Get("X-Ratelimit-Used"); got != "1" {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-used", got, 1)
+		}
+
+		// x-ratelimit-limit: 60
+		// x-ratelimit-remaining: 56
+		// x-ratelimit-used: 4
+		// x-ratelimit-reset: 1622955974
 	})
 	// TODO hard to read that I am making 11 requests but only expect 10 to
 	// reach my wrapped handler
@@ -66,7 +100,7 @@ func TestTokenBucket(t *testing.T) {
 		start := time.Now()
 
 		for ; calls < rate; calls++ {
-			h.ServeHTTP(nil, nil)
+			h.ServeHTTP(httptest.NewRecorder(), nil)
 		}
 		e = time.Now()
 		// Ensure the calls are made within the interval

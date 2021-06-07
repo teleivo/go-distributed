@@ -4,6 +4,7 @@ package ratelimit
 
 import (
 	"net/http"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
@@ -16,6 +17,7 @@ import (
 //
 func TokenBucket(limit uint64, interval time.Duration, h http.Handler) http.Handler {
 	tokens := limit
+	limitHeader := strconv.FormatUint(limit, 10)
 	var last time.Time
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c := time.Now()
@@ -32,6 +34,9 @@ func TokenBucket(limit uint64, interval time.Duration, h http.Handler) http.Hand
 		}
 
 		atomic.AddUint64(&tokens, ^uint64(0))
+		w.Header().Set("x-ratelimit-limit", limitHeader)
+		w.Header().Set("x-ratelimit-remaining", strconv.FormatUint(tokens, 10))
+		w.Header().Set("x-ratelimit-used", strconv.FormatUint(limit-tokens, 10))
 		h.ServeHTTP(w, r)
 	})
 }
