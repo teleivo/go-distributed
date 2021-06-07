@@ -9,25 +9,18 @@ import (
 	"time"
 )
 
-// TODO how can I only allow interval of second, minute, hour?
-
-// TokenBucket implements the token bucket algorithm shielding the given handler
-// from requests exceeding the desired request limit/interval.
-//
-//
-func TokenBucket(limit uint64, interval time.Duration, h http.Handler) http.Handler {
-	tokens := limit
-	limitHeader := strconv.FormatUint(limit, 10)
-	var last time.Time
+// TokenBucket shields the given handler from requests exceeding the rate of
+// max requests per time interval. It does so using the token bucket algorithm.
+// See https://en.wikipedia.org/wiki/Token_bucket
+func TokenBucket(max uint64, interval time.Duration, h http.Handler) http.Handler {
+	var reset time.Time
+	tokens := max
+	limitHeader := strconv.FormatUint(max, 10)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c := time.Now()
-		if d := c.Sub(last); d >= interval {
-			tokens = limit
+		if c := time.Now(); c.After(reset) {
+			tokens = max
+			reset = c.Add(interval)
 		}
-		// TODO this behavior should also be specified. Currently one has to
-		// wait interval duration in between requests. Otherwise the timer
-		// restarts and the client has to wait anew.
-		last = c
 		if atomic.LoadUint64(&tokens) == 0 {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
@@ -36,7 +29,8 @@ func TokenBucket(limit uint64, interval time.Duration, h http.Handler) http.Hand
 		atomic.AddUint64(&tokens, ^uint64(0))
 		w.Header().Set("x-ratelimit-limit", limitHeader)
 		w.Header().Set("x-ratelimit-remaining", strconv.FormatUint(tokens, 10))
-		w.Header().Set("x-ratelimit-used", strconv.FormatUint(limit-tokens, 10))
+		w.Header().Set("x-ratelimit-used", strconv.FormatUint(max-tokens, 10))
+		w.Header().Set("x-ratelimit-reset", strconv.FormatInt(reset.Unix(), 10))
 		h.ServeHTTP(w, r)
 	})
 }

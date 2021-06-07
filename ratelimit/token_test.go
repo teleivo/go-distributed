@@ -11,7 +11,7 @@ import (
 	"github.com/teleivo/go-distributed/ratelimit"
 )
 
-// TODO write a test for the returned rate limit headers
+// TODO write a test for the returned rate limit headers for error case
 // TODO write a test that shows that sending requests while the rate limiter is
 // in the state of 429 will not prolong the wait necessary to get to 200
 // TODO speed up tests with smaller interval?
@@ -78,11 +78,18 @@ func TestTokenBucket(t *testing.T) {
 		if got := rsp.Header.Get("X-Ratelimit-Used"); got != "1" {
 			t.Errorf("Got %s, expected %d for header x-ratelimit-used", got, 1)
 		}
+		if got := rsp.Header.Get("X-Ratelimit-Reset"); got != strconv.FormatInt(time.Now().Unix(), 10) {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-reset", got, 1)
+		}
 
 		// x-ratelimit-limit: 60
 		// x-ratelimit-remaining: 56
 		// x-ratelimit-used: 4
+
 		// x-ratelimit-reset: 1622955974
+		// TODO the first request will initiate the reset time
+		// reset := time.Now().Unix()
+		// once the time is passed a new reset will be set
 	})
 	// TODO hard to read that I am making 11 requests but only expect 10 to
 	// reach my wrapped handler
