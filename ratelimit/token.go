@@ -15,22 +15,25 @@ import (
 func TokenBucket(max uint64, interval time.Duration, h http.Handler) http.Handler {
 	var reset time.Time
 	tokens := max
-	limitHeader := strconv.FormatUint(max, 10)
+	maxHeader := strconv.FormatUint(max, 10)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c := time.Now(); c.After(reset) {
 			tokens = max
 			reset = c.Add(interval)
 		}
+		w.Header().Set("x-ratelimit-reset", strconv.FormatInt(reset.Unix(), 10))
+		w.Header().Set("x-ratelimit-limit", maxHeader)
+
 		if atomic.LoadUint64(&tokens) == 0 {
+			w.Header().Set("x-ratelimit-remaining", "0")
+			w.Header().Set("x-ratelimit-used", maxHeader)
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
 
 		atomic.AddUint64(&tokens, ^uint64(0))
-		w.Header().Set("x-ratelimit-limit", limitHeader)
 		w.Header().Set("x-ratelimit-remaining", strconv.FormatUint(tokens, 10))
 		w.Header().Set("x-ratelimit-used", strconv.FormatUint(max-tokens, 10))
-		w.Header().Set("x-ratelimit-reset", strconv.FormatInt(reset.Unix(), 10))
 		h.ServeHTTP(w, r)
 	})
 }

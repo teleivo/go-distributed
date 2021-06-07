@@ -51,14 +51,15 @@ func TestTokenBucket(t *testing.T) {
 			t.Errorf("Got %d, expected %d calls", got, rate)
 		}
 	})
-	t.Run("RequestsWithinLimitsRateLimitHeaders", func(t *testing.T) {
-		var rate uint64 = 10
+	t.Run("RespondsWithRateLimitHeaders", func(t *testing.T) {
+		var rate uint64 = 2
 		interval := time.Minute
 		var got uint64
 		h := ratelimit.TokenBucket(rate, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddUint64(&got, 1)
 		}))
 
+		// Request 1 allowed
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, nil)
 
@@ -78,18 +79,57 @@ func TestTokenBucket(t *testing.T) {
 		if got := rsp.Header.Get("X-Ratelimit-Used"); got != "1" {
 			t.Errorf("Got %s, expected %d for header x-ratelimit-used", got, 1)
 		}
-		if got := rsp.Header.Get("X-Ratelimit-Reset"); got != strconv.FormatInt(time.Now().Unix(), 10) {
-			t.Errorf("Got %s, expected %d for header x-ratelimit-reset", got, 1)
+
+		// Request 2 allowed
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, nil)
+
+		rsp = rec.Result()
+		if got := rsp.StatusCode; got != 200 {
+			t.Errorf("Got %d, expected status 200", got)
+		}
+		if got != 2 {
+			t.Errorf("Got %d, expected 2 calls", got)
+		}
+		if got := rsp.Header.Get("X-Ratelimit-Limit"); got != strconv.FormatUint(rate, 10) {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-limit", got, rate)
+		}
+		if got := rsp.Header.Get("X-Ratelimit-Remaining"); got != strconv.FormatUint(rate-2, 10) {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-remaining", got, rate-1)
+		}
+		if got := rsp.Header.Get("X-Ratelimit-Used"); got != "2" {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-used", got, 2)
 		}
 
-		// x-ratelimit-limit: 60
-		// x-ratelimit-remaining: 56
-		// x-ratelimit-used: 4
+		// Request 3 denied
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, nil)
 
+		rsp = rec.Result()
+		if got := rsp.StatusCode; got != 429 {
+			t.Errorf("Got %d, expected status 429", got)
+		}
+		if got != 2 {
+			t.Errorf("Got %d, expected 2 calls", got)
+		}
+		if got := rsp.Header.Get("X-Ratelimit-Limit"); got != strconv.FormatUint(rate, 10) {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-limit", got, rate)
+		}
+		if got := rsp.Header.Get("X-Ratelimit-Remaining"); got != "0" {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-remaining", got, 0)
+		}
+		if got := rsp.Header.Get("X-Ratelimit-Used"); got != "2" {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-used", got, 2)
+		}
+		// TODO test the timing
 		// x-ratelimit-reset: 1622955974
-		// TODO the first request will initiate the reset time
+		// TODO test that the first request will initiate the reset time
 		// reset := time.Now().Unix()
-		// once the time is passed a new reset will be set
+		// test that the reset time stays the same for subsequent requests and
+		// only changes once the time has passed
+		// if got := rsp.Header.Get("X-Ratelimit-Reset"); got != strconv.FormatInt(time.Now().Unix(), 10) {
+		// 	t.Errorf("Got %s, expected %d for header x-ratelimit-reset", got, 1)
+		// }
 	})
 	// TODO hard to read that I am making 11 requests but only expect 10 to
 	// reach my wrapped handler
