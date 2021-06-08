@@ -1,18 +1,9 @@
 # ratelimit
 
-Return headers like
-
-x-ratelimit-limit: 60
-x-ratelimit-remaining: 56
-x-ratelimit-reset: 1622955974
-x-ratelimit-used: 4
-
-https://docs.github.com/en/rest/overview/resources-in-the-rest-api#rate-limiting
-
-on exceeding the limit
-
-> HTTP/2 403
-> Date: Tue, 20 Aug 2013 14:50:41 GMT
-> X-RateLimit-Limit: 60
-> X-RateLimit-Remaining: 0
-> X-RateLimit-Reset: 1377013266
+* cli write the reset time into the log?
+* improve tests
+* think of how to implement the rate limiter accross handlers
+* update readme. mention article of figma and that 429 response might not be
+the best approach for a public API
+* think of test that would hammer the rate limiter to gather stats.
+this should then be useful to compare different implementations.
