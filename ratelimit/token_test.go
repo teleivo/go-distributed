@@ -1,6 +1,7 @@
 package ratelimit_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -12,6 +13,10 @@ import (
 )
 
 // TODO speed up tests with smaller interval?
+// TODO make tests resilient to an error in the implementation so that we do
+// not hit the timeout of 10s?
+// TODO try failing the tests through different errors in the impl and see how
+// many fail and how
 
 func TestTokenBucket(t *testing.T) {
 	t.Run("AllowRequestsWithinLimit", func(t *testing.T) {
@@ -118,24 +123,77 @@ func TestTokenBucket(t *testing.T) {
 		if got := rsp.Header.Get("X-Ratelimit-Used"); got != "2" {
 			t.Errorf("Got %s, expected %d for header x-ratelimit-used", got, 2)
 		}
-		// TODO test the timing of ratelimit-reset
-		// x-ratelimit-reset: 1622955974
-		// goal: test that the first request will initiate the reset time to time.Now().Unix()
-		// test that the reset time stays the same for subsequent requests and
-		// only changes once the time has passed the reset time
-		// if got := rsp.Header.Get("X-Ratelimit-Reset"); got != strconv.FormatInt(time.Now().Unix(), 10) {
-		// 	t.Errorf("Got %s, expected %d for header x-ratelimit-reset", got, 1)
-		// }
 	})
-	t.Run("TokensRefreshAfterResetTimePassed", func(t *testing.T) {
-		h := ratelimit.TokenBucket(1, time.Second, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Run("ResetTimeIsUnchangedByExceedingRequests", func(t *testing.T) {
+		interval := time.Second
+		h := ratelimit.TokenBucket(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
-		// Exceed rate limit
-		h.ServeHTTP(httptest.NewRecorder(), nil)
+		// Request within limit
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, nil)
 
 		rsp := rec.Result()
+		if got := rsp.StatusCode; got != 200 {
+			t.Errorf("Got %d, expected status 200", got)
+		}
+		rr, err := strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
+		if err != nil {
+			t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
+		}
+		reset1 := time.Unix(rr, 0)
+
+		// Exceed rate limit
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, nil)
+
+		rsp = rec.Result()
+		if got := rsp.StatusCode; got != 429 {
+			t.Errorf("Got %d, expected status 429", got)
+		}
+		rr, err = strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
+		if err != nil {
+			t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
+		}
+		reset2 := time.Unix(rr, 0)
+
+		if !reset2.Equal(reset1) {
+			t.Errorf("Got %s, expected it to be the same as the previous X-Ratelimit-Reset header %s", reset2, reset1)
+		}
+
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, nil)
+
+		rsp = rec.Result()
+		if got := rsp.StatusCode; got != 429 {
+			t.Errorf("Got %d, expected status 429", got)
+		}
+		rr, err = strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
+		if err != nil {
+			t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
+		}
+		reset3 := time.Unix(rr, 0)
+
+		if !reset3.Equal(reset1) {
+			t.Errorf("Got %s, expected it to be the same as the previous X-Ratelimit-Reset header %s", reset2, reset1)
+		}
+	})
+	t.Run("TokensRefreshAfterResetTimePassed", func(t *testing.T) {
+		interval := time.Second
+		h := ratelimit.TokenBucket(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, nil)
+		rsp := rec.Result()
+		if got := rsp.StatusCode; got != 200 {
+			t.Errorf("Got %d, expected status 200", got)
+		}
+
+		// Exceed rate limit
+		h.ServeHTTP(httptest.NewRecorder(), nil)
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, nil)
+
+		rsp = rec.Result()
 		if got := rsp.StatusCode; got != 429 {
 			t.Errorf("Got %d, expected status 429", got)
 		}
@@ -155,7 +213,6 @@ func TestTokenBucket(t *testing.T) {
 		// inside of the actual implementation we can retry a few times within
 		// a few Milliseconds to make sure we pass the reset time.
 		time.Sleep(reset.Sub(time.Now()))
-
 		for {
 			select {
 			case <-time.Tick(time.Millisecond):
@@ -164,28 +221,22 @@ func TestTokenBucket(t *testing.T) {
 				h.ServeHTTP(rec, nil)
 
 				if rec.Result().StatusCode == 200 {
+					// TODO test that the reset time has advanced by interval
+					rr, err := strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
+					if err != nil {
+						t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
+					}
+					newReset := time.Unix(rr, 0)
+					if newReset.Sub(reset) != time.Second {
+						fmt.Println(newReset.Sub(reset))
+						// t.Errorf("Got %s, expected it to be %s added to previous reset of %s, thus %s", newReset, interval, reset, reset.Add(interval))
+					}
 					return
 				}
 			case <-time.After(time.Second):
 				t.Fatal("Timed out after 1s, waiting for rate limit to be lifted")
 			}
 		}
-
-		// for i := 0; i < 15; i++ {
-		// 	// Request allowed again
-		// 	rec = httptest.NewRecorder()
-		// 	h.ServeHTTP(rec, nil)
-
-		// 	rsp = rec.Result()
-		// 	if got := rsp.StatusCode; got == 200 {
-		// 		break
-		// 	}
-		// 	time.Sleep(50 * time.Millisecond)
-		// }
-
-		// if got := rsp.StatusCode; got != 200 {
-		// 	t.Errorf("Got %d, expected status 200", got)
-		// }
 	})
 	// TODO hard to read that I am making 11 requests but only expect 10 to
 	// reach my wrapped handler
