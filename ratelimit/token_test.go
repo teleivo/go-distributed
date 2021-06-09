@@ -225,8 +225,8 @@ func TestTokenBucket(t *testing.T) {
 		// That is because inside the handler the monotonic clocks of the
 		// current time and the reset time will cause current.After(reset) to
 		// become true. Since we cannot tell what the monotonic clocks are
-		// inside of the actual implementation we can retry a few times within
-		// a few Milliseconds to make sure we pass the reset time.
+		// inside of the actual implementation we have to retry a few times
+		// within a few Milliseconds to make sure we pass the reset time.
 		time.Sleep(reset.Sub(time.Now()))
 		for {
 			select {
@@ -235,8 +235,8 @@ func TestTokenBucket(t *testing.T) {
 				rec := httptest.NewRecorder()
 				h.ServeHTTP(rec, nil)
 
-				if rec.Result().StatusCode == 200 {
-					// TODO test that the reset time has advanced by interval
+				rsp := rec.Result()
+				if rsp.StatusCode == 200 {
 					rr, err := strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
 					if err != nil {
 						t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
@@ -244,7 +244,7 @@ func TestTokenBucket(t *testing.T) {
 					newReset := time.Unix(rr, 0)
 					if newReset.Sub(reset) != time.Second {
 						fmt.Println(newReset.Sub(reset))
-						// t.Errorf("Got %s, expected it to be %s added to previous reset of %s, thus %s", newReset, interval, reset, reset.Add(interval))
+						t.Errorf("Got %s, expected %s added to the previous reset of %s, thus %s", newReset, interval, reset, reset.Add(interval))
 					}
 					return
 				}

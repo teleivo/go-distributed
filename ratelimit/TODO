@@ -1,7 +1,7 @@
 # ratelimit
 
-* cli write the reset time into the log?
 * improve tests
+* cli write the reset time into the log?
 * think of how to implement the rate limiter accross handlers
 * update readme. mention article of figma and that 429 response might not be
 the best approach for a public API
