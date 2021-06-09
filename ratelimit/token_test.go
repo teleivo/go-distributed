@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,12 +13,10 @@ import (
 	"github.com/teleivo/go-distributed/ratelimit"
 )
 
-// TODO speed up tests with smaller interval?
 // TODO make tests resilient to an error in the implementation so that we do
 // not hit the timeout of 10s?
 // TODO try failing the tests through different errors in the impl and see how
 // many fail and how
-
 func TestTokenBucket(t *testing.T) {
 	t.Run("AllowRequestsWithinLimit", func(t *testing.T) {
 		var got uint64
@@ -45,6 +44,26 @@ func TestTokenBucket(t *testing.T) {
 		if got := rsp.StatusCode; got != 429 {
 			t.Errorf("Got %d, expected status 429", got)
 		}
+		if got != 1 {
+			t.Errorf("Got %d, expected 1 call", got)
+		}
+	})
+	t.Run("ConcurrentRequestsCannotExceedLimit", func(t *testing.T) {
+		var got uint64
+		h := ratelimit.TokenBucket(1, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddUint64(&got, 1)
+		}))
+
+		var wg sync.WaitGroup
+		for i := 0; i < 20; i++ {
+			wg.Add(1)
+			go func() {
+				h.ServeHTTP(httptest.NewRecorder(), nil)
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+
 		if got != 1 {
 			t.Errorf("Got %d, expected 1 call", got)
 		}
