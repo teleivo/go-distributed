@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// TODO should I remove the monotonic clock from the reset and current time?
+// if I send the reset time to a client, the client cannot know my monotonic
+// clock. I
+
+// TODO inline the interval to make it time.Second internally? I should not
+// allow time.Millisecond as this can not even be sent via the reset header ;)
+
 // TokenBucket shields the given handler from requests exceeding the rate of
 // max requests per time interval. It does so using the token bucket algorithm.
 // See https://en.wikipedia.org/wiki/Token_bucket
@@ -17,7 +24,15 @@ func TokenBucket(max uint64, interval time.Duration, h http.Handler) http.Handle
 	tokens := max
 	maxHeader := strconv.FormatUint(max, 10)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if c := time.Now(); c.After(reset) {
+		// c := time.Now()
+		// fmt.Printf("%s, current %s\n", reset, c)
+		// if c.After(reset) {
+		// 	tokens = max
+		// }
+		// reset = c.Add(interval)
+
+		if c := time.Now(); c.After(reset.Add(1 * time.Millisecond)) {
+			// if c := time.Now(); c.After(reset) {
 			tokens = max
 			reset = c.Add(interval)
 		}

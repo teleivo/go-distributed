@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -22,15 +23,16 @@ func main() {
 	signal.Notify(done, syscall.SIGINT)
 	for {
 		select {
-		// TODO adjust logging prefix to a different timeformat to better
-		// show elapsed seconds?
-		// TODO print time between ticks to see why we sometimes get a 429
 		case <-ticker.C:
-			r, err := http.Get(*URL)
+			rsp, err := http.Get(*URL)
 			if err != nil {
 				log.Fatalf("Failed to request %q due to: %v", *URL, err)
 			}
-			log.Printf("%q responded with %d", *URL, r.StatusCode)
+			rr, err := strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
+			if err != nil {
+				log.Fatalf("Failed to parse X-Ratelimit-Reset %s due to: %v", rsp.Header.Get("X-Ratelimit-Reset"), err)
+			}
+			log.Printf("%q responded with %d, rate limit reset at %s", *URL, rsp.StatusCode, time.Unix(rr, 0))
 		case <-done:
 			log.Println("Shutting down")
 			return

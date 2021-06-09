@@ -194,7 +194,7 @@ func TestTokenBucket(t *testing.T) {
 	})
 	t.Run("TokensRefreshAfterResetTimePassed", func(t *testing.T) {
 		interval := time.Second
-		h := ratelimit.TokenBucket(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+		httptest.NewServer(ratelimit.TokenBucket(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
 
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, nil)
@@ -219,38 +219,44 @@ func TestTokenBucket(t *testing.T) {
 		}
 		reset := time.Unix(rr, 0)
 
+		if w := reset.Sub(time.Now()); w > interval {
+			t.Fatalf("Would have to wait %s, which is longer than the rate limit interval %s", w, interval)
+		}
+		// TODO the issue is with the time.Now(); I should use the Time in the
+		// Date header
+		fmt.Println(rsp.Header.Get("Date")) // who sets the date header? do I need a fully fledged integration test for this one?
+		time.Sleep(reset.Sub(time.Now()))
+		fmt.Println("Test time after sleeping ", time.Now())
+
 		// NOTE: converting X-Ratelimit-Reset into a time.Time gives a Time
 		// without a monotonic clock. So even if time.Now().After(reset) ==
 		// true in the test, it might not be in the actual rate limit handler.
 		// That is because inside the handler the monotonic clocks of the
 		// current time and the reset time will cause current.After(reset) to
 		// become true. Since we cannot tell what the monotonic clocks are
-		// inside of the actual implementation we have to retry a few times
-		// within a few Milliseconds to make sure we pass the reset time.
-		time.Sleep(reset.Sub(time.Now()))
-		for {
-			select {
-			case <-time.Tick(time.Millisecond):
-				// Request allowed again
-				rec := httptest.NewRecorder()
-				h.ServeHTTP(rec, nil)
+		// inside of the actual implementation we have to retry several times
+		// within a few hundred milliseconds to make sure we pass the reset time.
+		for i := 0; i < 50; i++ {
+			time.Sleep(10 * time.Millisecond)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, nil)
 
-				rsp := rec.Result()
-				if rsp.StatusCode == 200 {
-					rr, err := strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
-					if err != nil {
-						t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
-					}
-					newReset := time.Unix(rr, 0)
-					if newReset.Sub(reset) != time.Second {
-						fmt.Println(newReset.Sub(reset))
-						t.Errorf("Got %s, expected %s added to the previous reset of %s, thus %s", newReset, interval, reset, reset.Add(interval))
-					}
-					return
-				}
-			case <-time.After(time.Second):
-				t.Fatal("Timed out after 1s, waiting for rate limit to be lifted")
+			rsp := rec.Result()
+			if rsp.StatusCode != 200 {
+				continue
 			}
+
+			rr, err := strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
+			if err != nil {
+				t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
+			}
+			newReset := time.Unix(rr, 0)
+			if newReset.Sub(reset) != time.Second {
+				fmt.Println(newReset.Sub(reset))
+				t.Errorf("Got %s, expected %s added to the previous reset of %s, thus %s", newReset, interval, reset, reset.Add(interval))
+			}
+			return
 		}
+		t.Errorf("Rate limit was not reset within X-Ratelimit-Reset %s", reset)
 	})
 }
