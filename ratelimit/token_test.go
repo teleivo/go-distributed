@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,26 +43,6 @@ func TestTokenBucket(t *testing.T) {
 		if got := rsp.StatusCode; got != 429 {
 			t.Errorf("Got %d, expected status 429", got)
 		}
-		if got != 1 {
-			t.Errorf("Got %d, expected 1 call", got)
-		}
-	})
-	t.Run("ConcurrentRequestsCannotExceedLimit", func(t *testing.T) {
-		var got uint64
-		h := ratelimit.TokenBucket(1, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			atomic.AddUint64(&got, 1)
-		}))
-
-		var wg sync.WaitGroup
-		for i := 0; i < 20; i++ {
-			wg.Add(1)
-			go func() {
-				h.ServeHTTP(httptest.NewRecorder(), nil)
-				wg.Done()
-			}()
-		}
-		wg.Wait()
-
 		if got != 1 {
 			t.Errorf("Got %d, expected 1 call", got)
 		}
@@ -124,23 +103,23 @@ func TestTokenBucket(t *testing.T) {
 
 		rsp = rec.Result()
 		if got := rsp.StatusCode; got != 429 {
-			t.Errorf("Got %d, expected status 429", got)
+			t.Errorf("Got %d, expected status 429 when rate limit reached", got)
 		}
 		if got != 2 {
-			t.Errorf("Got %d, expected 2 calls", got)
+			t.Errorf("Got %d, expected 2 calls when rate limit reached", got)
 		}
 		if got := rsp.Header.Get("X-Ratelimit-Limit"); got != strconv.FormatUint(rate, 10) {
-			t.Errorf("Got %s, expected %d for header x-ratelimit-limit", got, rate)
+			t.Errorf("Got %s, expected %d for header x-ratelimit-limit when rate limit reached", got, rate)
 		}
 		if got := rsp.Header.Get("X-Ratelimit-Remaining"); got != "0" {
-			t.Errorf("Got %s, expected %d for header x-ratelimit-remaining", got, 0)
+			t.Errorf("Got %s, expected %d for header x-ratelimit-remaining when rate limit reached", got, 0)
 		}
 		if got := rsp.Header.Get("X-Ratelimit-Used"); got != "2" {
-			t.Errorf("Got %s, expected %d for header x-ratelimit-used", got, 2)
+			t.Errorf("Got %s, expected %d for header x-ratelimit-used when rate limit reached", got, 2)
 		}
 	})
 	t.Run("ResetTimeIsUnchangedByExceedingRequests", func(t *testing.T) {
-		interval := time.Second
+		interval := time.Minute
 		h := ratelimit.TokenBucket(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
 		// Request within limit
@@ -153,9 +132,15 @@ func TestTokenBucket(t *testing.T) {
 		}
 		rr, err := strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
 		if err != nil {
-			t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
+			t.Fatalf("Failed to parse x-ratelimit-reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
 		}
 		reset1 := time.Unix(rr, 0)
+
+		// necessary to show potential change in reset time without a delay an
+		// implementation that would always set the reset
+		// time.Now().Add(interval)
+		// whould not fail the test
+		time.Sleep(time.Second)
 
 		// Exceed rate limit
 		rec = httptest.NewRecorder()
@@ -167,13 +152,19 @@ func TestTokenBucket(t *testing.T) {
 		}
 		rr, err = strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
 		if err != nil {
-			t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
+			t.Fatalf("Failed to parse x-ratelimit-reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
 		}
 		reset2 := time.Unix(rr, 0)
 
 		if !reset2.Equal(reset1) {
-			t.Errorf("Got %s, expected it to be the same as the previous X-Ratelimit-Reset header %s", reset2, reset1)
+			t.Errorf("Got %s, expected it to be the same as the previous x-ratelimit-reset header %s", reset2, reset1)
 		}
+
+		// necessary to show potential change in reset time without a delay an
+		// implementation that would always set the reset
+		// time.Now().Add(interval)
+		// whould not fail the test
+		time.Sleep(time.Second)
 
 		rec = httptest.NewRecorder()
 		h.ServeHTTP(rec, nil)
@@ -184,12 +175,12 @@ func TestTokenBucket(t *testing.T) {
 		}
 		rr, err = strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
 		if err != nil {
-			t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
+			t.Fatalf("Failed to parse x-ratelimit-reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
 		}
 		reset3 := time.Unix(rr, 0)
 
 		if !reset3.Equal(reset1) {
-			t.Errorf("Got %s, expected it to be the same as the previous X-Ratelimit-Reset header %s", reset2, reset1)
+			t.Errorf("Got %s, expected it to be the same as the previous x-ratelimit-reset header %s", reset2, reset1)
 		}
 	})
 	t.Run("TokensRefreshAfterResetTimePassed", func(t *testing.T) {
@@ -229,12 +220,12 @@ func TestTokenBucket(t *testing.T) {
 
 		rr, err := strconv.ParseInt(resetHeader, 10, 0)
 		if err != nil {
-			t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", resetHeader)
+			t.Fatalf("Failed to parse x-ratelimit-reset header, got %s", resetHeader)
 		}
 		reset := time.Unix(rr, 0)
 		rr, err = strconv.ParseInt(nextResetHeader, 10, 0)
 		if err != nil {
-			t.Fatalf("Failed to parse next X-Ratelimit-Reset header, got %s", nextResetHeader)
+			t.Fatalf("Failed to parse next x-ratelimit-reset header, got %s", nextResetHeader)
 		}
 		nextReset := time.Unix(rr, 0)
 
@@ -267,7 +258,7 @@ func TestTokenBucket(t *testing.T) {
 
 		rr, err := strconv.ParseInt(rsp.Header.Get("X-Ratelimit-Reset"), 10, 0)
 		if err != nil {
-			t.Fatalf("Failed to parse X-Ratelimit-Reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
+			t.Fatalf("Failed to parse x-ratelimit-reset header, got %s", rsp.Header.Get("X-Ratelimit-Reset"))
 		}
 		reset := time.Unix(rr, 0)
 		date, err := time.Parse(time.RFC1123, rsp.Header.Get("Date"))

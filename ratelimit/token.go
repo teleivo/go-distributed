@@ -20,35 +20,30 @@ import (
 // max requests per time interval. It does so using the token bucket algorithm.
 // See https://en.wikipedia.org/wiki/Token_bucket
 func TokenBucket(max uint64, interval time.Duration, h http.Handler) http.Handler {
+	// TODO race on unsynchronized read/write of reset
 	var reset time.Time
 	tokens := max
 	maxHeader := strconv.FormatUint(max, 10)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// c := time.Now()
-		// fmt.Printf("%s, current %s\n", reset, c)
-		// if c.After(reset) {
-		// 	tokens = max
-		// }
-		// reset = c.Add(interval)
-
-		if c := time.Now(); c.After(reset.Add(1 * time.Millisecond)) {
-			// if c := time.Now(); c.After(reset) {
-			tokens = max
+		if c := time.Now(); c.After(reset) {
+			atomic.SwapUint64(&tokens, max)
 			reset = c.Add(interval)
 		}
 		w.Header().Set("x-ratelimit-reset", strconv.FormatInt(reset.Unix(), 10))
 		w.Header().Set("x-ratelimit-limit", maxHeader)
 
 		if atomic.LoadUint64(&tokens) == 0 {
+			// if tokens == 0 {
 			w.Header().Set("x-ratelimit-remaining", "0")
 			w.Header().Set("x-ratelimit-used", maxHeader)
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
 
-		atomic.AddUint64(&tokens, ^uint64(0))
-		w.Header().Set("x-ratelimit-remaining", strconv.FormatUint(tokens, 10))
-		w.Header().Set("x-ratelimit-used", strconv.FormatUint(max-tokens, 10))
+		remaining := atomic.AddUint64(&tokens, ^uint64(0))
+		// tokens--
+		w.Header().Set("x-ratelimit-remaining", strconv.FormatUint(remaining, 10))
+		w.Header().Set("x-ratelimit-used", strconv.FormatUint(max-remaining, 10))
 		h.ServeHTTP(w, r)
 	})
 }
