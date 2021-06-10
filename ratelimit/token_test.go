@@ -243,7 +243,7 @@ func TestTokenBucket(t *testing.T) {
 			t.Errorf("Got %s, expected %s added to the previous reset of %s, thus %s", nextReset, interval, reset, reset.Add(interval))
 		}
 	})
-	t.Run("TokensRefreshAfterResetTimePassed", func(t *testing.T) {
+	t.Run("DateAndResetHeaderDifferenceEqualsRatelimitInterval", func(t *testing.T) {
 		interval := time.Second
 		srv := httptest.NewServer(ratelimit.TokenBucket(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
 		defer srv.Close()
