@@ -1,3 +1,5 @@
+// +build !race
+
 package ratelimit_test
 
 import (
@@ -12,10 +14,6 @@ import (
 	"github.com/teleivo/go-distributed/ratelimit"
 )
 
-// TODO make tests resilient to an error in the implementation so that we do
-// not hit the timeout of 10s?
-// TODO try failing the tests through different errors in the impl and see how
-// many fail and how
 func TestTokenBucket(t *testing.T) {
 	t.Run("AllowRequestsWithinLimit", func(t *testing.T) {
 		var got uint64

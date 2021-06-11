@@ -1,5 +1,3 @@
-// +build !race
-
 package ratelimit_test
 
 import (
@@ -15,7 +13,6 @@ import (
 
 func TestTokenBucketRaceConditions(t *testing.T) {
 	t.Run("ConcurrentRequestsCannotExceedLimit", func(t *testing.T) {
-		// t.Skip()
 		var got uint64
 		srv := httptest.NewServer(ratelimit.TokenBucket(1, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddUint64(&got, 1)
@@ -23,7 +20,7 @@ func TestTokenBucketRaceConditions(t *testing.T) {
 		defer srv.Close()
 
 		var wg sync.WaitGroup
-		for i := 0; i < 200; i++ {
+		for i := 0; i < 600; i++ {
 			wg.Add(1)
 			go func() {
 				http.Get(srv.URL)
