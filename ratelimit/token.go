@@ -26,7 +26,7 @@ func TokenBucket(max uint64, interval time.Duration, h http.Handler) http.Handle
 	maxHeader := strconv.FormatUint(max, 10)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c := time.Now(); c.After(reset) {
-			atomic.SwapUint64(&tokens, max)
+			atomic.StoreUint64(&tokens, max)
 			reset = c.Add(interval)
 		}
 		w.Header().Set("x-ratelimit-reset", strconv.FormatInt(reset.Unix(), 10))
