@@ -1,8 +1,8 @@
-# ratelimit
+# ratelimiter
 
-* improve tests
-* think of how to implement the rate limiter accross handlers
+* fix race condition in implementation
 * update readme. mention article of figma and that 429 response might not be
-the best approach for a public API
+the best approach for a public API and merge to main
+* think of how to implement the rate limiter accross handlers
 * think of test that would hammer the rate limiter to gather stats.
 this should then be useful to compare different implementations.
