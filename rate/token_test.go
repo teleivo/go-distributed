@@ -1,6 +1,6 @@
 // +build !race
 
-package ratelimit_test
+package rate_test
 
 import (
 	"fmt"
@@ -11,13 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teleivo/go-distributed/ratelimit"
+	"github.com/teleivo/go-distributed/rate"
 )
 
 func TestTokenBucket(t *testing.T) {
 	t.Run("AllowRequestsWithinLimit", func(t *testing.T) {
 		var got uint64
-		h := ratelimit.Limit(1, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tb := &rate.TokenBucket{Max: 1, Interval: time.Minute}
+		h := tb.Limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddUint64(&got, 1)
 		}))
 
@@ -46,10 +47,9 @@ func TestTokenBucket(t *testing.T) {
 		}
 	})
 	t.Run("RespondsWithRateLimitHeaders", func(t *testing.T) {
-		var rate uint64 = 2
-		interval := time.Minute
 		var got uint64
-		h := ratelimit.Limit(rate, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tb := &rate.TokenBucket{Max: 2, Interval: time.Minute}
+		h := tb.Limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddUint64(&got, 1)
 		}))
 
@@ -64,11 +64,11 @@ func TestTokenBucket(t *testing.T) {
 		if got != 1 {
 			t.Errorf("Got %d, expected 1 call", got)
 		}
-		if got := rsp.Header.Get("X-Ratelimit-Limit"); got != strconv.FormatUint(rate, 10) {
-			t.Errorf("Got %s, expected %d for header x-ratelimit-limit", got, rate)
+		if got := rsp.Header.Get("X-Ratelimit-Limit"); got != strconv.FormatUint(tb.Max, 10) {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-limit", got, tb.Max)
 		}
-		if got := rsp.Header.Get("X-Ratelimit-Remaining"); got != strconv.FormatUint(rate-1, 10) {
-			t.Errorf("Got %s, expected %d for header x-ratelimit-remaining", got, rate-1)
+		if got := rsp.Header.Get("X-Ratelimit-Remaining"); got != strconv.FormatUint(tb.Max-1, 10) {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-remaining", got, tb.Max-1)
 		}
 		if got := rsp.Header.Get("X-Ratelimit-Used"); got != "1" {
 			t.Errorf("Got %s, expected %d for header x-ratelimit-used", got, 1)
@@ -85,8 +85,8 @@ func TestTokenBucket(t *testing.T) {
 		if got != 2 {
 			t.Errorf("Got %d, expected 2 calls", got)
 		}
-		if got := rsp.Header.Get("X-Ratelimit-Limit"); got != strconv.FormatUint(rate, 10) {
-			t.Errorf("Got %s, expected %d for header x-ratelimit-limit", got, rate)
+		if got := rsp.Header.Get("X-Ratelimit-Limit"); got != strconv.FormatUint(tb.Max, 10) {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-limit", got, tb.Max)
 		}
 		if got := rsp.Header.Get("X-Ratelimit-Remaining"); got != "0" {
 			t.Errorf("Got %s, expected %d for header x-ratelimit-remaining", got, 0)
@@ -106,8 +106,8 @@ func TestTokenBucket(t *testing.T) {
 		if got != 2 {
 			t.Errorf("Got %d, expected 2 calls when rate limit reached", got)
 		}
-		if got := rsp.Header.Get("X-Ratelimit-Limit"); got != strconv.FormatUint(rate, 10) {
-			t.Errorf("Got %s, expected %d for header x-ratelimit-limit when rate limit reached", got, rate)
+		if got := rsp.Header.Get("X-Ratelimit-Limit"); got != strconv.FormatUint(tb.Max, 10) {
+			t.Errorf("Got %s, expected %d for header x-ratelimit-limit when rate limit reached", got, tb.Max)
 		}
 		if got := rsp.Header.Get("X-Ratelimit-Remaining"); got != "0" {
 			t.Errorf("Got %s, expected %d for header x-ratelimit-remaining when rate limit reached", got, 0)
@@ -117,8 +117,8 @@ func TestTokenBucket(t *testing.T) {
 		}
 	})
 	t.Run("ResetTimeIsUnchangedByExceedingRequests", func(t *testing.T) {
-		interval := time.Minute
-		h := ratelimit.Limit(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+		tb := &rate.TokenBucket{Max: 1, Interval: time.Minute}
+		h := tb.Limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
 		// Request within limit
 		rec := httptest.NewRecorder()
@@ -182,8 +182,8 @@ func TestTokenBucket(t *testing.T) {
 		}
 	})
 	t.Run("TokensRefreshAfterResetTimePassed", func(t *testing.T) {
-		interval := time.Second
-		srv := httptest.NewServer(ratelimit.Limit(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
+		tb := &rate.TokenBucket{Max: 1, Interval: time.Second}
+		srv := httptest.NewServer(tb.Limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
 		defer srv.Close()
 
 		rsp, err := http.Get(srv.URL)
@@ -204,7 +204,7 @@ func TestTokenBucket(t *testing.T) {
 		}
 		resetHeader := rsp.Header.Get("X-Ratelimit-Reset")
 
-		time.Sleep(interval)
+		time.Sleep(tb.Interval)
 
 		// Rate limit should be lifted
 		rsp, err = http.Get(srv.URL)
@@ -212,7 +212,7 @@ func TestTokenBucket(t *testing.T) {
 			t.Fatalf("Unexpected error while sending request: %v", err)
 		}
 		if rsp.StatusCode != 200 {
-			t.Fatalf("Got status %d, expected 200 since rate limit should be reset within %s", rsp.StatusCode, interval)
+			t.Fatalf("Got status %d, expected 200 since rate limit should be reset within %s", rsp.StatusCode, tb.Interval)
 		}
 		nextResetHeader := rsp.Header.Get("X-Ratelimit-Reset")
 
@@ -229,12 +229,12 @@ func TestTokenBucket(t *testing.T) {
 
 		if nextReset.Sub(reset) != time.Second {
 			fmt.Println(nextReset.Sub(reset))
-			t.Errorf("Got %s, expected %s added to the previous reset of %s, thus %s", nextReset, interval, reset, reset.Add(interval))
+			t.Errorf("Got %s, expected %s added to the previous reset of %s, thus %s", nextReset, tb.Interval, reset, reset.Add(tb.Interval))
 		}
 	})
 	t.Run("DateAndResetHeaderDifferenceEqualsRatelimitInterval", func(t *testing.T) {
-		interval := time.Second
-		srv := httptest.NewServer(ratelimit.Limit(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
+		tb := &rate.TokenBucket{Max: 1, Interval: time.Second}
+		srv := httptest.NewServer(tb.Limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
 		defer srv.Close()
 
 		rsp, err := http.Get(srv.URL)
@@ -264,8 +264,8 @@ func TestTokenBucket(t *testing.T) {
 			t.Fatalf("Failed to parse Date header %s", rsp.Header.Get("Date"))
 		}
 
-		if got := reset.Sub(date); got != interval {
-			t.Fatalf("Got %s, expected %s between the servers Date %s and rate limit reset %s", got, interval, date, reset)
+		if got := reset.Sub(date); got != tb.Interval {
+			t.Fatalf("Got %s, expected %s between the servers Date %s and rate limit reset %s", got, tb.Interval, date, reset)
 		}
 	})
 }

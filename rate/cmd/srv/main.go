@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/teleivo/go-distributed/ratelimit"
+	"github.com/teleivo/go-distributed/rate"
 )
 
 func main() {
@@ -17,7 +17,8 @@ func main() {
 	flag.Parse()
 
 	mux := http.NewServeMux()
-	mux.Handle("/", ratelimit.Limit(*max, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	tb := &rate.TokenBucket{Max: *max, Interval: time.Minute}
+	mux.Handle("/", tb.Limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "hello")
 	})))
 

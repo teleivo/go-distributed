@@ -1,4 +1,4 @@
-package ratelimit_test
+package rate_test
 
 import (
 	"net/http"
@@ -8,13 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teleivo/go-distributed/ratelimit"
+	"github.com/teleivo/go-distributed/rate"
 )
 
 func TestTokenBucketRaceConditions(t *testing.T) {
 	t.Run("ConcurrentRequestsCannotExceedLimit", func(t *testing.T) {
 		var got uint64
-		srv := httptest.NewServer(ratelimit.Limit(1, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tb := &rate.TokenBucket{Max: 1, Interval: time.Minute}
+		srv := httptest.NewServer(tb.Limit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddUint64(&got, 1)
 		})))
 		defer srv.Close()
