@@ -17,7 +17,7 @@ import (
 func TestTokenBucket(t *testing.T) {
 	t.Run("AllowRequestsWithinLimit", func(t *testing.T) {
 		var got uint64
-		h := ratelimit.TokenBucket(1, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := ratelimit.Limit(1, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddUint64(&got, 1)
 		}))
 
@@ -49,7 +49,7 @@ func TestTokenBucket(t *testing.T) {
 		var rate uint64 = 2
 		interval := time.Minute
 		var got uint64
-		h := ratelimit.TokenBucket(rate, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := ratelimit.Limit(rate, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddUint64(&got, 1)
 		}))
 
@@ -118,7 +118,7 @@ func TestTokenBucket(t *testing.T) {
 	})
 	t.Run("ResetTimeIsUnchangedByExceedingRequests", func(t *testing.T) {
 		interval := time.Minute
-		h := ratelimit.TokenBucket(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+		h := ratelimit.Limit(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
 		// Request within limit
 		rec := httptest.NewRecorder()
@@ -183,7 +183,7 @@ func TestTokenBucket(t *testing.T) {
 	})
 	t.Run("TokensRefreshAfterResetTimePassed", func(t *testing.T) {
 		interval := time.Second
-		srv := httptest.NewServer(ratelimit.TokenBucket(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
+		srv := httptest.NewServer(ratelimit.Limit(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
 		defer srv.Close()
 
 		rsp, err := http.Get(srv.URL)
@@ -234,7 +234,7 @@ func TestTokenBucket(t *testing.T) {
 	})
 	t.Run("DateAndResetHeaderDifferenceEqualsRatelimitInterval", func(t *testing.T) {
 		interval := time.Second
-		srv := httptest.NewServer(ratelimit.TokenBucket(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
+		srv := httptest.NewServer(ratelimit.Limit(1, interval, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})))
 		defer srv.Close()
 
 		rsp, err := http.Get(srv.URL)

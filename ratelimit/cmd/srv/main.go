@@ -17,7 +17,7 @@ func main() {
 	flag.Parse()
 
 	mux := http.NewServeMux()
-	mux.Handle("/", ratelimit.TokenBucket(*max, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/", ratelimit.Limit(*max, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "hello")
 	})))
 

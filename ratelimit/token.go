@@ -16,10 +16,10 @@ import (
 // TODO inline the interval to make it time.Second internally? I should not
 // allow time.Millisecond as this can not even be sent via the reset header ;)
 
-// TokenBucket shields the given handler from requests exceeding the rate of
+// Limit shields the given handler from requests exceeding the rate of
 // max requests per time interval. It does so using the token bucket algorithm.
 // See https://en.wikipedia.org/wiki/Token_bucket
-func TokenBucket(max uint64, interval time.Duration, h http.Handler) http.Handler {
+func Limit(max uint64, interval time.Duration, h http.Handler) http.Handler {
 	// TODO race on unsynchronized read/write of reset
 	var reset time.Time
 	tokens := max

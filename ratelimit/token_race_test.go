@@ -14,7 +14,7 @@ import (
 func TestTokenBucketRaceConditions(t *testing.T) {
 	t.Run("ConcurrentRequestsCannotExceedLimit", func(t *testing.T) {
 		var got uint64
-		srv := httptest.NewServer(ratelimit.TokenBucket(1, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(ratelimit.Limit(1, time.Minute, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddUint64(&got, 1)
 		})))
 		defer srv.Close()
