@@ -21,7 +21,7 @@ func TestTokenBucketRaceConditions(t *testing.T) {
 		defer srv.Close()
 
 		var wg sync.WaitGroup
-		for i := 0; i < 600; i++ {
+		for i := 0; i < 200; i++ {
 			wg.Add(1)
 			go func() {
 				http.Get(srv.URL)

@@ -6,3 +6,5 @@ the best approach for a public API and merge to main
 * think of how to implement the rate limiter accross handlers
 * think of test that would hammer the rate limiter to gather stats.
 this should then be useful to compare different implementations.
+* implement another rate limiter. introduce an interface Limiter with Limit()
+move TokenBucket to its own bucket package renaming the struct to Limiter
